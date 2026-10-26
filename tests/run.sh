@@ -12,7 +12,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-BIN="${BIN:-./mllvm}"
+BIN="${BIN:-./bin/mllvm}"
 [ -x "$BIN" ] || { echo "error: $BIN is not built" >&2; exit 1; }
 
 tmp="$(mktemp -d)"
