@@ -1,0 +1,80 @@
+# ============================================================================
+# mllvm -- continuous integration
+# ----------------------------------------------------------------------------
+# Builds with both GCC and Clang, runs the complete test suite, repeats the
+# suite under the address/undefined-behaviour sanitizers, and cross-builds for
+# AArch64 and runs it under qemu-user.  Every job must pass before a release.
+# ============================================================================
+name: build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build and test (${{ matrix.cc }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [ gcc, clang ]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: make CC=${{ matrix.cc }}
+
+      - name: Show the version
+        run: ./bin/mllvm version
+
+      - name: Run the test suite
+        run: ./tests/run.sh
+
+  sanitizers:
+    name: sanitizers
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: |
+          make clean
+          make CC=clang \
+            CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer"
+
+      - name: Run the test suite
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ./tests/run.sh
+
+  aarch64:
+    name: aarch64 cross build and emulation
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install the AArch64 toolchain and qemu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu qemu-user-static
+
+      - name: Cross build
+        run: |
+          make clean
+          make CC=aarch64-linux-gnu-gcc CFLAGS="-O2 -g" LDFLAGS="-static"
+
+      - name: Run the test suite under qemu
+        run: |
+          printf '#!/bin/sh\nexec qemu-aarch64-static %s "$@"\n' \
+            "$PWD/bin/mllvm" > /tmp/mllvm-aarch64
+          chmod +x /tmp/mllvm-aarch64
+          BIN=/tmp/mllvm-aarch64 ./tests/run.sh
